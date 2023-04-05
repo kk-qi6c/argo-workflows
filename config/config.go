@@ -242,6 +242,7 @@ type PostgreSQLConfig struct {
 type MySQLConfig struct {
 	DatabaseConfig
 	Options map[string]string `json:"options,omitempty"`
+	CaCertSecret apiv1.SecretKeySelector `json:"caCertSecret,omitempty"`
 }
 
 // MetricsConfig defines a config for a metrics server

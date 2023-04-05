@@ -2,17 +2,23 @@ package sqldb
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"time"
 
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"upper.io/db.v3/lib/sqlbuilder"
+
 	"upper.io/db.v3/mysql"
 	"upper.io/db.v3/postgresql"
 
 	"github.com/argoproj/argo-workflows/v3/config"
 	"github.com/argoproj/argo-workflows/v3/errors"
 	"github.com/argoproj/argo-workflows/v3/util"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 func GetTableName(persistConfig *config.PersistConfig) (string, error) {
@@ -96,13 +102,42 @@ func CreateMySQLDBSession(kubectlConfig kubernetes.Interface, namespace string, 
 		return nil, err
 	}
 
-	session, err := mysql.Open(mysql.ConnectionURL{
+	settings := mysql.ConnectionURL{
 		User:     string(userNameByte),
 		Password: string(passwordByte),
 		Host:     cfg.GetHostname(),
 		Database: cfg.Database,
-		Options:  cfg.Options,
-	})
+	}
+
+	if cfg.Options != nil {
+		settings.Options = cfg.Options
+	} else {
+		settings.Options = map[string]string{}
+	}
+
+	if cfg.CaCertSecret != (apiv1.SecretKeySelector{}) {
+		caCertByte, err := util.GetSecrets(ctx, kubectlConfig, namespace, cfg.CaCertSecret.Name, cfg.CaCertSecret.Key)
+		if err != nil {
+			return nil, "", err
+		}
+
+		rootCertPool := x509.NewCertPool()
+
+		if ok := rootCertPool.AppendCertsFromPEM(caCertByte); !ok {
+			return nil, "", fmt.Errorf("failed to append PEM")
+		}
+
+		err = mysqldriver.RegisterTLSConfig("argo-ca-cert", &tls.Config{
+			RootCAs: rootCertPool,
+		})
+		if err != nil {
+			return nil, "", err
+		}
+
+		settings.Options["tls"] = "argo-ca-cert"
+	}
+
+	session, err := mysql.Open(settings)
 	if err != nil {
 		return nil, err
 	}
