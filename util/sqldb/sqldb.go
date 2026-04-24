@@ -2,16 +2,21 @@ package sqldb
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"time"
 
 	"github.com/upper/db/v4"
 	mysqladp "github.com/upper/db/v4/adapter/mysql"
 	postgresqladp "github.com/upper/db/v4/adapter/postgresql"
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/argoproj/argo-workflows/v4/config"
 	"github.com/argoproj/argo-workflows/v4/util"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 // CreateDBSession creates the dB session
@@ -57,6 +62,32 @@ func createMySQLDBSession(ctx context.Context, kubectlConfig kubernetes.Interfac
 	passwordByte, err := util.GetSecrets(ctx, kubectlConfig, namespace, cfg.PasswordSecret.Name, cfg.PasswordSecret.Key)
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.Options == nil {
+		cfg.Options = map[string]string{}
+	}
+
+	if cfg.CaCertSecret != (apiv1.SecretKeySelector{}) {
+		caCertByte, err := util.GetSecrets(ctx, kubectlConfig, namespace, cfg.CaCertSecret.Name, cfg.CaCertSecret.Key)
+		if err != nil {
+			return nil, err
+		}
+
+		rootCertPool := x509.NewCertPool()
+
+		if ok := rootCertPool.AppendCertsFromPEM(caCertByte); !ok {
+			return nil, fmt.Errorf("failed to append PEM")
+		}
+
+		err = mysqldriver.RegisterTLSConfig("argo-ca-cert", &tls.Config{
+			RootCAs: rootCertPool,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.Options["tls"] = "argo-ca-cert"
 	}
 
 	return createMySQLDBSessionWithCreds(cfg, persistPool, string(userNameByte), string(passwordByte))

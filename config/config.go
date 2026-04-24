@@ -386,6 +386,7 @@ type MySQLConfig struct {
 	DatabaseConfig
 	// Options contains additional MySQL connection options
 	Options map[string]string `json:"options,omitempty"`
+	CaCertSecret apiv1.SecretKeySelector `json:"caCertSecret,omitempty"`
 }
 
 // MetricModifier are modifiers for an individual named metric to change their behaviour
